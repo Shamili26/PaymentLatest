@@ -1,0 +1,13 @@
+# --- Application logs ---
+logs/
+*.log
+*.log.gz
+
+# --- Maven build output ---
+target/
+
+# --- IDE / OS noise ---
+.idea/
+*.iml
+.DS_Store
+
