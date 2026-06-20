@@ -3,6 +3,9 @@ logs/
 *.log
 *.log.gz
 
+# --- Node dependencies ---
+node_modules/
+
 # --- Maven build output ---
 target/
 
