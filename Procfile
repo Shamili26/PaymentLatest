@@ -1,0 +1,1 @@
+web: java -jar payment-app-backend-1.0.6.jar --spring.profiles.active=prod --server.port=5000
