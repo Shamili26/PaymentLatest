@@ -13,7 +13,7 @@
 
     <groupId>com.paymentapp</groupId>
     <artifactId>payment-app-backend</artifactId>
-    <version>1.0.8</version>
+    <version>1.0.9</version>
     <name>payment-app-backend</name>
     <description>Payment App — Auth + Payment Workflow (Java 11)</description>
 
