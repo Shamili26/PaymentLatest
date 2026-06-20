@@ -7,7 +7,9 @@ import com.paymentapp.entity.UserSession;
 import com.paymentapp.repository.AccountRepository;
 import com.paymentapp.repository.UserRepository;
 import com.paymentapp.repository.UserSessionRepository;
+import com.paymentapp.security.CurrentUserProvider;
 import com.paymentapp.security.JwtService;
+import com.paymentapp.security.TokenHasher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,7 @@ public class AuthService {
     private final PasswordEncoder       passwordEncoder;
     private final JwtService            jwtService;
     private final AuthenticationManager authManager;
+    private final CurrentUserProvider   currentUserProvider;
 
     @Value("${app.jwt.expiration-ms}")
     private long jwtExpirationMs;
@@ -82,14 +85,15 @@ public class AuthService {
                     .build();
 
             // saveAndFlush surfaces any DB constraint violation here (not later),
-            // so we can handle it and roll back the transaction.
-            userRepository.saveAndFlush(user);
-            log.info("New user registered: {}", user.getUsername());
+            // so we can handle it and roll back the transaction. Use the managed
+            // entity it returns (it carries the generated id) for the rest of the flow.
+            User savedUser = userRepository.saveAndFlush(user);
+            log.info("New user registered: {}", savedUser.getUsername());
 
             // Simultaneously insert the same 16-digit account number into the
             // accounts table, owned by the new user (per-user data isolation).
             Account account = Account.builder()
-                    .user(user)
+                    .user(savedUser)
                     .accountNumber(req.getAccountNumber())
                     .accountName(req.getFirstName() + " " + req.getLastName())
                     .mobileNumber(req.getPhoneNumber())
@@ -97,9 +101,14 @@ public class AuthService {
                     .accountStatus("ACTIVE")
                     .build();
             accountRepository.saveAndFlush(account);
-            log.info("Account {} created for user {}", account.getAccountNumber(), user.getUsername());
+            log.info("Account {} created for user {}", account.getAccountNumber(), savedUser.getUsername());
 
-            return buildAuthResponse(user, null, null);
+            // Registration does NOT issue a session/token. The user must log in,
+            // which is the only place an authenticated session (and JWT cookie)
+            // is created.
+            Auth.AuthResponse response = new Auth.AuthResponse();
+            response.setUser(buildUserInfo(savedUser));
+            return response;
         } catch (DataIntegrityViolationException ex) {
             // Marks the transaction for rollback; neither table keeps partial data.
             log.error("Registration failed while saving user/account data", ex);
@@ -129,6 +138,33 @@ public class AuthService {
         return buildAuthResponse(user, ipAddress, userAgent);
     }
 
+    // ─── Logout ──────────────────────────────────────────────────────────────
+
+    /**
+     * Revokes the session backing the given JWT so the token can no longer be
+     * used, even before it expires. Safe to call with a null/unknown token.
+     */
+    @Transactional
+    public void logout(String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        sessionRepository.findByTokenHash(TokenHasher.sha256Hex(token))
+                .ifPresent(session -> {
+                    session.setActive(false);
+                    sessionRepository.save(session);
+                    log.info("Session revoked for user {}", session.getUser().getUsername());
+                });
+    }
+
+    // ─── Current user ─────────────────────────────────────────────────────────
+
+    /** Returns the profile of the currently authenticated user (for GET /me). */
+    @Transactional(readOnly = true)
+    public Auth.AuthResponse.UserInfo currentUserInfo() {
+        return buildUserInfo(currentUserProvider.getCurrentUser());
+    }
+
     // ─── Shared ──────────────────────────────────────────────────────────────
 
     private Auth.AuthResponse buildAuthResponse(User user, String ipAddress, String userAgent) {
@@ -139,10 +175,12 @@ public class AuthService {
         String token = jwtService.generateToken(extraClaims, user);
         long expiresInSeconds = jwtExpirationMs / 1000;
 
-        // Persist session record
+        // Persist session record. The token is stored as a SHA-256 hash (never
+        // in clear text, never MD5) so the JWT filter can look it up to confirm
+        // the session is still active on every request.
         UserSession session = UserSession.builder()
                 .user(user)
-                .tokenHash(org.springframework.util.DigestUtils.md5DigestAsHex(token.getBytes()))
+                .tokenHash(TokenHasher.sha256Hex(token))
                 .ipAddress(ipAddress)
                 .userAgent(userAgent)
                 .expiresAt(LocalDateTime.now().plusSeconds(expiresInSeconds))
@@ -150,7 +188,14 @@ public class AuthService {
                 .build();
         sessionRepository.save(session);
 
-        // Build response
+        Auth.AuthResponse response = new Auth.AuthResponse();
+        response.setAccessToken(token);
+        response.setExpiresIn(expiresInSeconds);
+        response.setUser(buildUserInfo(user));
+        return response;
+    }
+
+    private Auth.AuthResponse.UserInfo buildUserInfo(User user) {
         Auth.AuthResponse.UserInfo userInfo = new Auth.AuthResponse.UserInfo();
         userInfo.setUserId(user.getUserId());
         userInfo.setUsername(user.getUsername());
@@ -158,12 +203,7 @@ public class AuthService {
         userInfo.setFirstName(user.getFirstName());
         userInfo.setLastName(user.getLastName());
         userInfo.setRole(user.getRole());
-
-        Auth.AuthResponse response = new Auth.AuthResponse();
-        response.setAccessToken(token);
-        response.setExpiresIn(expiresInSeconds);
-        response.setUser(userInfo);
-        return response;
+        return userInfo;
     }
 
     private LocalDate parseDateOfBirth(String dateOfBirth) {

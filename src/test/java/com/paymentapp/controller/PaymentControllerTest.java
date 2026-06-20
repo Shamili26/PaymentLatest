@@ -3,6 +3,8 @@ package com.paymentapp.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paymentapp.config.TestSecurityConfig;
 import com.paymentapp.dto.PaymentDto;
+import com.paymentapp.repository.UserSessionRepository;
+import com.paymentapp.security.JwtService;
 import com.paymentapp.service.PaymentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +15,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,6 +36,12 @@ class PaymentControllerTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @MockBean  private PaymentService paymentService;
+
+    // Collaborators of the JwtAuthenticationFilter that @WebMvcTest loads as a
+    // servlet Filter. Mocked so the slice context can start.
+    @MockBean  private JwtService            jwtService;
+    @MockBean  private UserDetailsService    userDetailsService;
+    @MockBean  private UserSessionRepository userSessionRepository;
 
     private PaymentDto.PaymentResponse sampleResponse;
 
@@ -118,57 +127,24 @@ class PaymentControllerTest {
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }
 
-    // ─── POST /api/payment ────────────────────────────────────────────────────
+    // ─── POST /api/payment is intentionally NOT exposed (MFA cannot be bypassed) ─
 
     @Test
     @WithMockUser
-    @DisplayName("POST /api/payment returns 201 with created payment")
-    void create_validRequest_returns201() throws Exception {
+    @DisplayName("POST /api/payment is not available — payments require the OTP flow")
+    void create_directEndpoint_isNotAllowed() throws Exception {
         PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
         req.setAccountId(1L);
         req.setPayeeId(1L);
         req.setPaymentAmount(new BigDecimal("500"));
         req.setPaymentDate(LocalDate.now().plusDays(1));
 
-        when(paymentService.create(any())).thenReturn(sampleResponse);
-
+        // No POST handler is mapped to /api/payment (only GET and PUT), so the
+        // direct create path is gone — the OTP flow is the only way to pay.
         mockMvc.perform(post("/api/payment")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.paymentId").value(1))
-                .andExpect(jsonPath("$.status").value("PENDING"));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("POST /api/payment returns 400 for missing required fields")
-    void create_missingFields_returns400() throws Exception {
-        // Empty body — all fields null
-        mockMvc.perform(post("/api/payment")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("POST /api/payment returns 400 when service throws")
-    void create_pastDate_returns400() throws Exception {
-        PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
-        req.setAccountId(1L);
-        req.setPayeeId(1L);
-        req.setPaymentAmount(new BigDecimal("500"));
-        req.setPaymentDate(LocalDate.now().plusDays(1));
-
-        when(paymentService.create(any()))
-                .thenThrow(new IllegalArgumentException("Payment date cannot be in the past"));
-
-        mockMvc.perform(post("/api/payment")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Payment date cannot be in the past"));
+                .andExpect(status().isMethodNotAllowed());
     }
 
     // ─── PUT /api/payment ─────────────────────────────────────────────────────

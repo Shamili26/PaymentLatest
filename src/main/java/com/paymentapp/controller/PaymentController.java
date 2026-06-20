@@ -38,14 +38,9 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.findById(paymentId));
     }
 
-    // ─── POST /api/payment — create ───────────────────────────────────────────
-
-    @PostMapping("/payment")
-    public ResponseEntity<PaymentDto.PaymentResponse> create(
-            @Valid @RequestBody PaymentDto.CreateRequest req) {
-        PaymentDto.PaymentResponse response = paymentService.create(req);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
+    // NOTE: There is intentionally no direct "POST /api/payment" create endpoint.
+    // Every payment MUST go through the two-step MFA flow below
+    // (/payment/initiate → /payment/verify) so OTP verification cannot be skipped.
 
     // ─── POST /api/payment/initiate — MFA step 1: send OTP ───────────────────
 

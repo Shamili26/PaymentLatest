@@ -1,1 +1,1 @@
-web: java -jar payment-app-backend-1.0.6.jar --spring.profiles.active=prod --server.port=5000
+web: java -Daws.region=us-east-1 -jar payment-app-backend-1.0.8.jar --spring.profiles.active=prod --server.port=5000

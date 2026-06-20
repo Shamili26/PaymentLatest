@@ -130,80 +130,8 @@ class PaymentServiceTest {
                 .hasMessageContaining("No fee tier configured");
     }
 
-    // ─── create ───────────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("create payment succeeds with valid future date and owned account")
-    void create_validRequest_returnsPaymentResponse() {
-        PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
-        req.setAccountId(1L);
-        req.setPayeeId(1L);
-        req.setPaymentAmount(new BigDecimal("500"));
-        req.setPaymentDate(LocalDate.now().plusDays(1));
-        req.setMemo("Test");
-
-        when(accountRepository.findByAccountIdAndUser_UserId(1L, 1L)).thenReturn(Optional.of(testAccount));
-        when(payeeRepository.findById(1L)).thenReturn(Optional.of(testPayee));
-        when(feeRepository.findFeeForAmount(any())).thenReturn(Optional.of(testFee));
-        when(paymentRepository.save(any())).thenReturn(testPayment);
-
-        PaymentDto.PaymentResponse resp = paymentService.create(req);
-
-        assertThat(resp.getPaymentId()).isEqualTo(1L);
-        assertThat(resp.getStatus()).isEqualTo("PENDING");
-        assertThat(resp.getPaymentAmount()).isEqualByComparingTo("500");
-        assertThat(resp.getFeeAmount()).isEqualByComparingTo("25");
-        verify(paymentRepository).save(any(Payment.class));
-    }
-
-    @Test
-    @DisplayName("create payment fails with past date")
-    void create_pastDate_throwsException() {
-        PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
-        req.setAccountId(1L);
-        req.setPayeeId(1L);
-        req.setPaymentAmount(new BigDecimal("500"));
-        req.setPaymentDate(LocalDate.now().minusDays(1));
-
-        assertThatThrownBy(() -> paymentService.create(req))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cannot be in the past");
-        verify(paymentRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("create payment denied when account is not owned by the user")
-    void create_accountNotOwned_throwsAccessDenied() {
-        PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
-        req.setAccountId(99L);
-        req.setPayeeId(1L);
-        req.setPaymentAmount(new BigDecimal("500"));
-        req.setPaymentDate(LocalDate.now().plusDays(1));
-
-        when(accountRepository.findByAccountIdAndUser_UserId(99L, 1L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> paymentService.create(req))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("does not belong to the current user");
-        verify(paymentRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("create payment fails when payee not found")
-    void create_payeeNotFound_throwsException() {
-        PaymentDto.CreateRequest req = new PaymentDto.CreateRequest();
-        req.setAccountId(1L);
-        req.setPayeeId(99L);
-        req.setPaymentAmount(new BigDecimal("500"));
-        req.setPaymentDate(LocalDate.now().plusDays(1));
-
-        when(accountRepository.findByAccountIdAndUser_UserId(1L, 1L)).thenReturn(Optional.of(testAccount));
-        when(payeeRepository.findById(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> paymentService.create(req))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Payee not found");
-    }
+    // NOTE: The MFA-free create() path has been removed; payments are exercised
+    // through initiatePayment() + verifyOtpAndCreate() below.
 
     // ─── findAll ──────────────────────────────────────────────────────────────
 

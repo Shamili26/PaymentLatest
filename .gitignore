@@ -6,6 +6,9 @@ logs/
 # --- Maven build output ---
 target/
 
+# --- Elastic Beanstalk deploy bundles ---
+payment-app-eb*.zip
+
 # --- IDE / OS noise ---
 .idea/
 *.iml

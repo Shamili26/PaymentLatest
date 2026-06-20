@@ -62,32 +62,9 @@ public class PaymentService {
         return resp;
     }
 
-    // ─── Create ──────────────────────────────────────────────────────────────
-
-    @Transactional
-    public PaymentDto.PaymentResponse create(PaymentDto.CreateRequest req) {
-        validatePaymentDate(req.getPaymentDate());
-
-        // Only allow paying from an account the logged-in user owns
-        Account account = getOwnedAccountOrThrow(req.getAccountId());
-        Payee payee = payeeRepository.findById(req.getPayeeId())
-                .orElseThrow(() -> new IllegalArgumentException("Payee not found: " + req.getPayeeId()));
-        Fee fee = findFeeOrThrow(req.getPaymentAmount());
-
-        Payment payment = Payment.builder()
-                .account(account)
-                .payee(payee)
-                .fee(fee)
-                .paymentAmount(req.getPaymentAmount())
-                .paymentDate(req.getPaymentDate())
-                .memo(req.getMemo())
-                .status("PENDING")
-                .build();
-
-        Payment saved = paymentRepository.save(payment);
-        log.info("Payment created: id={} by user={}", saved.getPaymentId(), account.getUser().getUsername());
-        return toResponse(saved);
-    }
+    // NOTE: Payments are created ONLY after OTP verification, inside
+    // verifyOtpAndCreate(). There is deliberately no MFA-free create() path —
+    // removing it closes the bypass where a payment could be made without an OTP.
 
     // ─── MFA: initiate payment (send OTP) ─────────────────────────────────────
 

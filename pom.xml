@@ -13,14 +13,37 @@
 
     <groupId>com.paymentapp</groupId>
     <artifactId>payment-app-backend</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.8</version>
     <name>payment-app-backend</name>
     <description>Payment App — Auth + Payment Workflow (Java 11)</description>
 
     <properties>
         <java.version>11</java.version>
         <jjwt.version>0.11.5</jjwt.version>
+        <spring-cloud-aws.version>2.4.4</spring-cloud-aws.version>
+        <awssdk.version>2.25.27</awssdk.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Cloud AWS BOM — manages the Secrets Manager integration -->
+            <dependency>
+                <groupId>io.awspring.cloud</groupId>
+                <artifactId>spring-cloud-aws-dependencies</artifactId>
+                <version>${spring-cloud-aws.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- AWS SDK v2 BOM — manages the SNS client for OTP SMS -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Spring Boot Starters -->
@@ -46,6 +69,20 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- AWS Secrets Manager — loads DB/JWT secrets via spring.config.import
+             (activated by the 'prod' profile; see application-prod.properties) -->
+
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-starter-aws-secrets-manager-config</artifactId>
+        </dependency>
+
+        <!-- AWS SNS — real OTP SMS delivery (prod profile) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sns</artifactId>
         </dependency>
 
         <!-- H2 in-memory DB for tests -->

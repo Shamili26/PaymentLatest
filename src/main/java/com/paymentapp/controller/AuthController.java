@@ -1,12 +1,18 @@
 package com.paymentapp.controller;
 
 import com.paymentapp.dto.Auth;
+import com.paymentapp.security.JwtAuthenticationFilter;
 import com.paymentapp.service.AuthService;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.LockedException;
@@ -23,6 +29,11 @@ import java.util.stream.Collectors;
 public class AuthController {
 
     private final AuthService authService;
+
+    // Cookies are marked Secure by default; can be disabled for local HTTP dev
+    // via app.security.cookie.secure=false.
+    @Value("${app.security.cookie.secure:true}")
+    private boolean cookieSecure;
 
     // ─── POST /api/auth/register ──────────────────────────────────────────────
 
@@ -45,7 +56,37 @@ public class AuthController {
         String userAgent  = httpRequest.getHeader("User-Agent");
 
         Auth.AuthResponse response = authService.login(request, ipAddress, userAgent);
-        return ResponseEntity.ok(response);
+
+        // Deliver the JWT in an httpOnly, Secure, SameSite=Strict cookie so it is
+        // unreachable from JavaScript (XSS cannot read it). The token is removed
+        // from the response body for the same reason.
+        ResponseCookie cookie = buildJwtCookie(response.getAccessToken(), response.getExpiresIn());
+        response.setAccessToken(null);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(response);
+    }
+
+    // ─── POST /api/auth/logout ────────────────────────────────────────────────
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest httpRequest) {
+        authService.logout(extractToken(httpRequest));
+
+        // Clear the cookie on the client.
+        ResponseCookie cleared = buildJwtCookie("", 0);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, cleared.toString())
+                .build();
+    }
+
+    // ─── GET /api/auth/me ─────────────────────────────────────────────────────
+
+    /** Returns the current user if the session cookie is valid; else 401. */
+    @GetMapping("/me")
+    public ResponseEntity<Auth.AuthResponse.UserInfo> me() {
+        return ResponseEntity.ok(authService.currentUserInfo());
     }
 
     // ─── Exception handlers ───────────────────────────────────────────────────
@@ -88,7 +129,40 @@ public class AuthController {
                 .body(new Auth.ApiError(403, "Forbidden", "Account is locked"));
     }
 
+    // GET /me with no valid session lands here.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Auth.ApiError> handleNotAuthenticated() {
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(new Auth.ApiError(401, "Unauthorized", "Not authenticated"));
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private ResponseCookie buildJwtCookie(String value, long maxAgeSeconds) {
+        return ResponseCookie.from(JwtAuthenticationFilter.JWT_COOKIE, value)
+                .httpOnly(true)        // not readable by JavaScript → XSS-safe
+                .secure(cookieSecure)  // only sent over HTTPS
+                .sameSite("Strict")    // not sent on cross-site requests → CSRF defence
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .build();
+    }
+
+    private String extractToken(HttpServletRequest request) {
+        if (request.getCookies() != null) {
+            for (Cookie cookie : request.getCookies()) {
+                if (JwtAuthenticationFilter.JWT_COOKIE.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
+        return null;
+    }
 
     private String getClientIp(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");

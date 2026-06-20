@@ -22,7 +22,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByPhoneNumber(String phoneNumber);
 
-    @Modifying
+    // clearAutomatically/flushAutomatically keep the persistence context in sync
+    // with this bulk update, so a subsequent read sees the new lastLogin value
+    // instead of a stale cached entity.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE User u SET u.lastLogin = :lastLogin WHERE u.userId = :userId")
     void updateLastLogin(Long userId, LocalDateTime lastLogin);
 }

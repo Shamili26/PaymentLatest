@@ -3,6 +3,8 @@ package com.paymentapp.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paymentapp.config.TestSecurityConfig;
 import com.paymentapp.dto.Auth;
+import com.paymentapp.repository.UserSessionRepository;
+import com.paymentapp.security.JwtService;
 import com.paymentapp.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +18,10 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -31,6 +35,13 @@ class AuthControllerTest {
     @Autowired private MockMvc       mockMvc;
     @Autowired private ObjectMapper  objectMapper;
     @MockBean  private AuthService   authService;
+
+    // Collaborators of the JwtAuthenticationFilter, which @WebMvcTest pulls into
+    // the slice as a servlet Filter. Mocked so the context can load; not exercised
+    // here (requests carry no JWT cookie).
+    @MockBean  private JwtService            jwtService;
+    @MockBean  private UserDetailsService    userDetailsService;
+    @MockBean  private UserSessionRepository userSessionRepository;
 
     private Auth.AuthResponse sampleAuthResponse;
 
@@ -137,23 +148,28 @@ class AuthControllerTest {
     // ─── POST /api/auth/login ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("POST /api/auth/login returns 200 with token")
+    @DisplayName("POST /api/auth/login returns 200, sets httpOnly JWT cookie, omits token from body")
     void login_validCredentials_returns200() throws Exception {
-        when(authService.login(any(), anyString(), anyString()))
+        when(authService.login(any(), any(), any()))
                 .thenReturn(sampleAuthResponse);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"usernameOrEmail\":\"testuser\",\"password\":\"Test@1234\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").value("mock.jwt.token"))
+                // JWT delivered as an httpOnly cookie, never readable by JavaScript
+                .andExpect(cookie().exists("jwt"))
+                .andExpect(cookie().httpOnly("jwt", true))
+                .andExpect(cookie().value("jwt", "mock.jwt.token"))
+                // and stripped from the response body
+                .andExpect(jsonPath("$.accessToken").value(nullValue()))
                 .andExpect(jsonPath("$.user.role").value("ROLE_USER"));
     }
 
     @Test
     @DisplayName("POST /api/auth/login returns 401 for bad credentials")
     void login_badCredentials_returns401() throws Exception {
-        when(authService.login(any(), anyString(), anyString()))
+        when(authService.login(any(), any(), any()))
                 .thenThrow(new BadCredentialsException("Bad credentials"));
 
         mockMvc.perform(post("/api/auth/login")
@@ -166,7 +182,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /api/auth/login returns 401 for user not found")
     void login_userNotFound_returns401() throws Exception {
-        when(authService.login(any(), anyString(), anyString()))
+        when(authService.login(any(), any(), any()))
                 .thenThrow(new UsernameNotFoundException("Not found"));
 
         mockMvc.perform(post("/api/auth/login")
@@ -178,7 +194,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /api/auth/login returns 403 for disabled account")
     void login_disabledAccount_returns403() throws Exception {
-        when(authService.login(any(), anyString(), anyString()))
+        when(authService.login(any(), any(), any()))
                 .thenThrow(new DisabledException("Disabled"));
 
         mockMvc.perform(post("/api/auth/login")
@@ -191,7 +207,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /api/auth/login returns 403 for locked account")
     void login_lockedAccount_returns403() throws Exception {
-        when(authService.login(any(), anyString(), anyString()))
+        when(authService.login(any(), any(), any()))
                 .thenThrow(new LockedException("Locked"));
 
         mockMvc.perform(post("/api/auth/login")

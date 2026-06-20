@@ -7,6 +7,7 @@ import com.paymentapp.entity.UserSession;
 import com.paymentapp.repository.AccountRepository;
 import com.paymentapp.repository.UserRepository;
 import com.paymentapp.repository.UserSessionRepository;
+import com.paymentapp.security.CurrentUserProvider;
 import com.paymentapp.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +39,7 @@ class AuthServiceTest {
     @Mock private PasswordEncoder       passwordEncoder;
     @Mock private JwtService            jwtService;
     @Mock private AuthenticationManager authManager;
+    @Mock private CurrentUserProvider   currentUserProvider;
 
     @InjectMocks
     private AuthService authService;
@@ -73,12 +75,12 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("test@example.com")).thenReturn(false);
         when(passwordEncoder.encode(anyString())).thenReturn("$2a$10$hashed");
         when(userRepository.saveAndFlush(any())).thenReturn(testUser);
-        when(jwtService.generateToken(anyMap(), any())).thenReturn("mock.jwt.token");
-        when(sessionRepository.save(any())).thenReturn(new UserSession());
 
         Auth.AuthResponse resp = authService.register(req);
 
-        assertThat(resp.getAccessToken()).isEqualTo("mock.jwt.token");
+        // Registration returns the user profile but issues NO token/session —
+        // the user must log in to obtain a session cookie.
+        assertThat(resp.getAccessToken()).isNull();
         assertThat(resp.getUser().getUsername()).isEqualTo("testuser");
         assertThat(resp.getUser().getRole()).isEqualTo("ROLE_USER");
 
@@ -87,7 +89,8 @@ class AuthServiceTest {
         verify(userRepository).saveAndFlush(userCaptor.capture());
         assertThat(userCaptor.getValue().getAccountNumber()).isEqualTo("1234567812345678");
 
-        verify(sessionRepository).save(any(UserSession.class));
+        verify(sessionRepository, never()).save(any());
+        verify(jwtService, never()).generateToken(anyMap(), any());
 
         // … and simultaneously on a new accounts row (with the mobile number).
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
