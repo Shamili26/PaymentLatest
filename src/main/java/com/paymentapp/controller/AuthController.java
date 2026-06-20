@@ -35,6 +35,14 @@ public class AuthController {
     @Value("${app.security.cookie.secure:true}")
     private boolean cookieSecure;
 
+    // SameSite policy for the JWT cookie. Defaults to "None" so the cookie is
+    // sent on cross-site requests — the frontend and API are served from
+    // different hosts (separate CloudFront distributions). "None" REQUIRES the
+    // Secure flag, so for local HTTP dev set this to "Lax" alongside
+    // app.security.cookie.secure=false.
+    @Value("${app.security.cookie.same-site:None}")
+    private String cookieSameSite;
+
     // ─── POST /api/auth/register ──────────────────────────────────────────────
 
     @PostMapping("/register")
@@ -57,9 +65,10 @@ public class AuthController {
 
         Auth.AuthResponse response = authService.login(request, ipAddress, userAgent);
 
-        // Deliver the JWT in an httpOnly, Secure, SameSite=Strict cookie so it is
-        // unreachable from JavaScript (XSS cannot read it). The token is removed
-        // from the response body for the same reason.
+        // Deliver the JWT in an httpOnly, Secure, SameSite=None cookie so it is
+        // unreachable from JavaScript (XSS cannot read it) yet still sent on the
+        // cross-site requests from the frontend host to the API host. The token
+        // is removed from the response body for the same reason.
         ResponseCookie cookie = buildJwtCookie(response.getAccessToken(), response.getExpiresIn());
         response.setAccessToken(null);
 
@@ -141,9 +150,9 @@ public class AuthController {
 
     private ResponseCookie buildJwtCookie(String value, long maxAgeSeconds) {
         return ResponseCookie.from(JwtAuthenticationFilter.JWT_COOKIE, value)
-                .httpOnly(true)        // not readable by JavaScript → XSS-safe
-                .secure(cookieSecure)  // only sent over HTTPS
-                .sameSite("Strict")    // not sent on cross-site requests → CSRF defence
+                .httpOnly(true)            // not readable by JavaScript → XSS-safe
+                .secure(cookieSecure)      // only sent over HTTPS (required for SameSite=None)
+                .sameSite(cookieSameSite)  // None → sent cross-site (frontend host → API host)
                 .path("/")
                 .maxAge(maxAgeSeconds)
                 .build();
